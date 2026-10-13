@@ -1,0 +1,83 @@
+pipeline {
+    agent { label 'workshop-linux' }
+    options {
+        timestamps()
+        timeout(time: 30, unit: 'MINUTES')
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+        skipDefaultCheckout(true)
+    }
+    parameters {
+        booleanParam(name: 'DEPLOY', defaultValue: false, description: 'Deploy on this dedicated agent host')
+        booleanParam(name: 'PUSH_IMAGE', defaultValue: false, description: 'Publish to Docker Hub; requires dockerhub credentials')
+        booleanParam(name: 'INJECT_BAD_RELEASE', defaultValue: false, description: 'Classroom only: produce an unhealthy image')
+        string(name: 'IMAGE_REPO', defaultValue: 'workshop/task-api', description: 'Docker Hub namespace/repository; lowercase')
+    }
+    stages {
+        stage('Checkout') { steps { checkout scm } }
+        stage('Prepare') {
+            steps {
+                sh '''
+                    python3 scripts/preflight.py --docker
+                    python3 -m venv .venv
+                    .venv/bin/python -m pip install -r requirements-dev.txt
+                '''
+                script {
+                    if (!(params.IMAGE_REPO ==~ /[a-z0-9][a-z0-9_.-]*\/[a-z0-9][a-z0-9_.-]*/)) {
+                        error('IMAGE_REPO must be a lowercase namespace/repository')
+                    }
+                    env.RELEASE_VERSION = sh(script: 'git rev-parse --short=12 HEAD', returnStdout: true).trim() + "-${env.BUILD_NUMBER}"
+                    env.IMAGE_REF = "${params.IMAGE_REPO}:${env.RELEASE_VERSION}"
+                    env.BAD_RELEASE = params.INJECT_BAD_RELEASE ? '1' : '0'
+                }
+            }
+        }
+        stage('Lint') { steps { sh '.venv/bin/python -m ruff check app scripts tests' } }
+        stage('Test') {
+            steps {
+                sh '.venv/bin/python -m pytest --junitxml=reports/junit.xml --cov=app --cov=scripts --cov-report=xml:reports/coverage.xml --cov-report=term-missing --cov-fail-under=80'
+            }
+        }
+        stage('Build image') {
+            steps {
+                sh 'docker build --build-arg APP_VERSION="$RELEASE_VERSION" --build-arg DEMO_BROKEN="$BAD_RELEASE" -t "$IMAGE_REF" .'
+            }
+        }
+        stage('Publish') {
+            when { expression { params.PUSH_IMAGE } }
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'REGISTRY_USER', passwordVariable: 'REGISTRY_TOKEN')]) {
+                    sh '''
+                        set +x
+                        export DOCKER_CONFIG="$(mktemp -d)"
+                        trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+                        printf '%s' "$REGISTRY_TOKEN" | docker login --username "$REGISTRY_USER" --password-stdin
+                        docker push "$IMAGE_REF"
+                    '''
+                }
+            }
+        }
+        stage('Approve release') {
+            when { expression { params.DEPLOY } }
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    input message: "Deploy ${env.IMAGE_REF} on the workshop host?", ok: 'Deploy'
+                }
+            }
+        }
+        stage('Deploy and verify') {
+            when { expression { params.DEPLOY } }
+            steps {
+                sh '.venv/bin/python scripts/deploy.py --image "$IMAGE_REF" --version "$RELEASE_VERSION"'
+            }
+        }
+    }
+    post {
+        always {
+            junit testResults: 'reports/junit.xml', allowEmptyResults: true
+            archiveArtifacts artifacts: 'reports/*.json,reports/*.xml', allowEmptyArchive: true
+            echo "Workshop release: ${currentBuild.currentResult}; image=${env.IMAGE_REF}; ${env.BUILD_URL}"
+            deleteDir()
+        }
+    }
+}

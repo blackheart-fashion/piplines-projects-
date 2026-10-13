@@ -1,0 +1,37 @@
+---
+- name: Deploy a previously published workshop image on a prepared EC2 host
+  hosts: workshop
+  gather_facts: false
+  vars:
+    workshop_dir: /home/ubuntu/workshop-release
+  tasks:
+    - name: Validate release inputs
+      ansible.builtin.assert:
+        that:
+          - image_ref is defined
+          - release_version is defined
+          - image_ref is match('^[a-z0-9][a-z0-9_.-]*/[a-z0-9][a-z0-9_.-]*:[a-zA-Z0-9_.-]+$')
+    - name: Create automation directory
+      ansible.builtin.file:
+        path: '{{ workshop_dir }}'
+        state: directory
+        mode: '0755'
+    - name: Copy release automation
+      ansible.builtin.copy:
+        src: '../scripts/{{ item }}'
+        dest: '{{ workshop_dir }}/{{ item }}'
+        mode: '0644'
+      loop: [deploy.py, smoke.py]
+    - name: Pull the published image
+      ansible.builtin.command:
+        argv: [docker, pull, '{{ image_ref }}']
+      changed_when: true
+    - name: Deploy and verify on the target host
+      ansible.builtin.command:
+        argv: [python3, deploy.py, --image, '{{ image_ref }}', --version, '{{ release_version }}']
+        chdir: '{{ workshop_dir }}'
+      register: release_result
+      changed_when: "'already_deployed' not in release_result.stdout"
+    - name: Show release events
+      ansible.builtin.debug:
+        var: release_result.stdout_lines

@@ -1,0 +1,36 @@
+pipeline {
+    agent { label 'workshop-linux' }
+    options {
+        timestamps()
+        timeout(time: 20, unit: 'MINUTES')
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+        skipDefaultCheckout(true)
+    }
+    stages {
+        stage('Checkout') { steps { checkout scm } }
+        stage('Prepare') {
+            steps {
+                sh '''
+                    python3 scripts/preflight.py
+                    python3 -m venv .venv
+                    .venv/bin/python -m pip install -r requirements-dev.txt
+                '''
+            }
+        }
+        stage('Lint') { steps { sh '.venv/bin/python -m ruff check app scripts tests' } }
+        stage('Test') {
+            steps {
+                sh '.venv/bin/python -m pytest --junitxml=reports/junit.xml --cov=app --cov=scripts --cov-report=xml:reports/coverage.xml --cov-report=term-missing --cov-fail-under=80'
+            }
+        }
+    }
+    post {
+        always {
+            junit testResults: 'reports/junit.xml', allowEmptyResults: true
+            archiveArtifacts artifacts: 'reports/*.json,reports/*.xml', allowEmptyArchive: true
+            echo "Workshop CI: ${currentBuild.currentResult}; ${env.BUILD_URL}"
+            deleteDir()
+        }
+    }
+}

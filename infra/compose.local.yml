@@ -1,0 +1,33 @@
+# Optional automated local setup. .local-jenkins must be generated first.
+# Trusted workshop only: agent Docker socket access can control the host Docker daemon.
+services:
+  jenkins:
+    image: workshop/jenkins:lts-jdk21
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.jenkins
+    environment:
+      JAVA_OPTS: -Djenkins.install.runSetupWizard=false
+    volumes:
+      - ../.local-jenkins:/run/workshop-secrets
+  agent:
+    network_mode: host
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.agent
+    environment:
+      JENKINS_URL: http://127.0.0.1:8080/
+      JENKINS_AGENT_NAME: workshop-agent
+      JENKINS_WEB_SOCKET: 'true'
+      JENKINS_AGENT_WORKDIR: /home/jenkins/agent
+    # The secret stays in a file, not a command argument or committed environment file.
+    entrypoint: [sh, -c, 'export JENKINS_SECRET=$$(cat /run/workshop-secrets/agent-secret); exec /usr/local/bin/jenkins-agent']
+    group_add: ['0']
+    volumes:
+      - ../.local-jenkins:/run/workshop-secrets:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - agent_work:/home/jenkins/agent
+    depends_on: [jenkins]
+    restart: unless-stopped
+volumes:
+  agent_work:

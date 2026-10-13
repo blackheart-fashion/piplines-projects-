@@ -1,0 +1,15 @@
+.git
+.venv
+.workshop-venv
+.workshop-deps
+.ansible-venv
+.local-jenkins
+__pycache__
+reports
+data
+docs
+dist
+output
+tmp
+.env
+*.pem

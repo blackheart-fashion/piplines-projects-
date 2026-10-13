@@ -1,0 +1,3 @@
+FROM jenkins/jenkins:lts-jdk21
+RUN jenkins-plugin-cli --plugins workflow-aggregator git junit credentials-binding timestamper github
+COPY infra/jenkins-init.groovy /usr/share/jenkins/ref/init.groovy.d/workshop.groovy
