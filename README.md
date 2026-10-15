@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🚀 Jenkins + Python: First Two Days
+# 🚀 Jenkins + Python: Last Two Days
 
 **A practical instructor & student pack for learners who already know Docker, Kubernetes, Ansible, and basic AWS.**
 
