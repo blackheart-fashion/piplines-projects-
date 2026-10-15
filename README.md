@@ -88,7 +88,6 @@
 
 ## 🔗 Repository & Jenkins
 
-- 📂 **Public repository:** [Siddhantji/jenkins-python-workshop](https://github.com/Siddhantji/jenkins-python-workshop)
 - 🏗️ **Owner's prepared Jenkins:** [localhost:8080](http://127.0.0.1:8080/) — both jobs verified.
 - 📘 Login and optional automated setup are documented in the integration guide.
 
